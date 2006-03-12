@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# $Id: imapbiff.pl,v 1.2 2006/03/10 04:54:46 jcs Exp $
+# $Id: imapbiff.pl,v 1.3 2006/03/12 16:36:00 jcs Exp $
 #
 # imap biff for mac os x using growl notification
 #
@@ -115,15 +115,18 @@ for(;;) {
 				}
 
 				$config{$server}{"seen"}{$folder} = \@unseen;
-
-				alarm(0);
 			};
+
+			alarm(0);
 
 			if ($@) {
 				# timed out, server may be dead, drop it and reconnect
 				if ($debug) {
 					print "server connection timed out: " . $@ . "\n";
 				}
+
+				# throttle
+				sleep $sleepint;
 
 				imap_connect($server);
 
@@ -146,26 +149,34 @@ exit;
 
 sub imap_connect {
 	my $server = $_[0];
+	my ($sock, $imap);
 
 	$config{$server}{"init"} = 0;
 
+	if ($debug) {
+		print "connecting to " . ($config{$server}{"ssl"} ? "ssl " : "")
+			. "server " . $server . "\n";
+	}
+
 	if ($config{$server}{"ssl"}) {
-		my $sock = new IO::Socket::SSL(
+		$sock = new IO::Socket::SSL(
 			PeerHost => $server,
-			PeerPort => "imaps",
+			PeerPort => ($config{$server}{"port"} ? $config{$server}{"port"}
+				: 993),
 			Timeout => 5,
-		);
+		) or die "no ssl socket: " . $@;
 
 		$config{$server}{"sslsock"} = \$sock;
 	}
 
-	my $imap = Mail::IMAPClient->new(
+	$imap = Mail::IMAPClient->new(
 		Socket => ($config{$server}{"ssl"} ? $${$config{$server}{"sslsock"}}
 			: undef),
 		User => $config{$server}{"username"},
 		Password => $config{$server}{"password"},
 		Peek => 1,
-	);
+		Debug => $debug,
+	) or die "no imap connection: " . $@;
 
 	$config{$server}{"imap"} = \$imap;
 
@@ -175,11 +186,13 @@ sub imap_connect {
 		# get the imap server to the point of accepting a login prompt
 		my $retcode;
 		until ($retcode) {
-			for my $line (@{$imap->_read_line}) {
+			my $d = $imap->_read_line or return undef;
+
+			for my $line (@$d) {
 				next unless $line->[Mail::IMAPClient::TYPE] eq "OUTPUT";
 
-				($retcode) = $line->[Mail::IMAPClient::DATA] =~
-					/^\*\s+(OK|BAD|NO)/i;
+				($retcode) =
+					$line->[Mail::IMAPClient::DATA] =~ /^\*\s+(OK|BAD|NO)/i;
 
 				if ($retcode =~ /BYE|NO /) {
 					die "imap server disconnected";
