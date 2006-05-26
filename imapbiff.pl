@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# $Id: imapbiff.pl,v 1.3 2006/03/12 16:36:00 jcs Exp $
+# $Id: imapbiff.pl,v 1.4 2006/05/26 16:23:51 jcs Exp $
 #
 # imap biff for mac os x using growl notification
 #
@@ -170,7 +170,7 @@ sub imap_connect {
 	}
 
 	$imap = Mail::IMAPClient->new(
-		Socket => ($config{$server}{"ssl"} ? $${$config{$server}{"sslsock"}}
+		Socket => ($config{$server}{"ssl"} ? ${$config{$server}{"sslsock"}}
 			: undef),
 		User => $config{$server}{"username"},
 		Password => $config{$server}{"password"},
@@ -226,6 +226,10 @@ sub announce_message {
 
 	my $subject = $$imap->get_header($msgno, "Subject");
 	my $from = $$imap->get_header($msgno, "From");
+
+	# strip high ascii because growlnotify likes to segfault on it
+	$subject =~ tr/\000-\177//cd; 
+	$from =~ tr/\000-\177//cd; 
 
 	system("/usr/local/bin/growlnotify",
 		"-n", "imapbiff",
