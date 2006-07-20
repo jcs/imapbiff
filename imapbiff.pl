@@ -1,7 +1,7 @@
 #!/usr/bin/perl
-# $Id: imapbiff.pl,v 1.4 2006/05/26 16:23:51 jcs Exp $
+# $Id: imapbiff.pl,v 1.5 2006/07/20 07:13:01 jcs Exp $
 #
-# imap biff for mac os x using growl notification
+# imap biff with growl/meow notification
 #
 # Copyright (c) 2006 joshua stein <jcs@jcs.org>
 # ssl work-around code from Nick Burch (http://gagravarr.org/code/)
@@ -46,15 +46,22 @@
 #		},
 #	);
 #
+#	# seconds between folder polls
 #	$sleepint = 60;
-#	$debug = 1;
+#
+#	# for verbosity
+#	#$debug = 1;
+#
+#	# define on mac os x to use growl
+#	#$growl = 1;
 #
 
 use strict;
+use Fcntl;
 use Mail::IMAPClient;
 use IO::Socket::SSL;
 
-my (%config, $debug, $sleepint, $socktimeout);
+my (%config, $debug, $growl, $sleepint, $socktimeout);
 
 # default sleep between check intervals is 120 seconds
 $sleepint = 30;
@@ -62,17 +69,19 @@ $sleepint = 30;
 # seconds to allow a folder check to take
 $socktimeout = 10;
 
-# read the user's config
-if (-f $ENV{"HOME"} . "/.imapbiffrc") {
-	my $c;
-	open(C, $ENV{"HOME"} . "/.imapbiffrc") or die;
-	while (my $line = <C>) {
-		$c .= $line;
-	}
-	close(C);
+# assume we're not on mac os x
+$growl = 0;
 
-	eval($c);
+# read the user's config
+my $configdat;
+open(C, $ENV{"HOME"} . "/.imapbiffrc") or
+	die "no config file in ~/.imapbiffrc";
+while (my $line = <C>) {
+	$configdat .= $line;
 }
+close(C);
+
+eval($configdat) or die "invalid configuration file, exiting\n";
 
 # init, build connections
 foreach my $server (keys %config) {
@@ -231,9 +240,19 @@ sub announce_message {
 	$subject =~ tr/\000-\177//cd; 
 	$from =~ tr/\000-\177//cd; 
 
-	system("/usr/local/bin/growlnotify",
-		"-n", "imapbiff",
-		"--image", "/Applications/Mail.app/Contents/Resources/drag.tiff",
-		"-t", $subject,
-		"-m", "From " . $from);
+	if ($growl) {
+		system("/usr/local/bin/growlnotify",
+			"-n", "imapbiff",
+			"--image", "/Applications/Mail.app/Contents/Resources/drag.tiff",
+			"-t", $subject,
+			"-m", "From " . $from);
+	} else {
+		sysopen(MEOW, ($ENV{"MEOW_SOCK"} ? $ENV{"MEOW_SOCK"}
+			: $ENV{"HOME"} . "/.meow"), O_WRONLY|O_NONBLOCK) or
+			die "can't write to meow socket (not running?)";
+		print MEOW "||" . "New message in <b>" . $folder . "</b>\n"
+			. "From <b>" . $from . "</b>:\n"
+			. $subject . "\n";
+		close(MEOW);
+	}
 }
