@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# $Id: imapbiff.pl,v 1.5 2006/07/20 07:13:01 jcs Exp $
+# $Id: imapbiff.pl,v 1.6 2006/12/16 02:14:01 jcs Exp $
 #
 # imap biff with growl/meow notification
 #
@@ -168,14 +168,24 @@ sub imap_connect {
 	}
 
 	if ($config{$server}{"ssl"}) {
-		$sock = new IO::Socket::SSL(
-			PeerHost => $server,
-			PeerPort => ($config{$server}{"port"} ? $config{$server}{"port"}
-				: 993),
-			Timeout => 5,
-		) or die "no ssl socket: " . $@;
+		eval {
+			$sock = new IO::Socket::SSL(
+				PeerHost => $server,
+				PeerPort => ($config{$server}{"port"} ?
+					$config{$server}{"port"} : 993),
+				Timeout => 5,
+			) or die "no ssl socket: " . $@;
 
-		$config{$server}{"sslsock"} = \$sock;
+			$config{$server}{"sslsock"} = \$sock;
+		};
+
+		if ($@) {
+			# connect failed, we'll try again later
+			if ($debug) {
+				print "connect failed (" . $@ . ")\n";
+			}
+			return;
+		}
 	}
 
 	$imap = Mail::IMAPClient->new(
