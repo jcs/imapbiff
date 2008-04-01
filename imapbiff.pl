@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# $Id: imapbiff.pl,v 1.7 2008/03/03 02:41:54 jcs Exp $
+# $Id: imapbiff.pl,v 1.8 2008/04/01 01:13:14 jcs Exp $
 #
 # imap biff with meow/growl/dbus notification
 #
@@ -160,7 +160,9 @@ for(;;) {
 					print "server connection timed out: " . $@ . "\n";
 				}
 
-				notify("imapbiff", "lost connection to server " . $server);
+				if ($config{$server}{"init"}) {
+					notify("imapbiff", "lost connection to server " . $server);
+				}
 
 				# throttle
 				sleep $sleepint;
