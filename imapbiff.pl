@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# $Id: imapbiff.pl,v 1.8 2008/04/01 01:13:14 jcs Exp $
+# $Id: imapbiff.pl,v 1.9 2009/05/06 06:16:50 jcs Exp $
 #
 # imap biff with meow/growl/dbus notification
 #
@@ -84,7 +84,7 @@ while (my $line = <C>) {
 }
 close(C);
 
-eval($configdat) or die "invalid configuration file, exiting\n";
+eval($configdat) or die "invalid configuration file, exiting: $!\n";
 
 # check for bogus config
 if ($notify != "dbus" || $notify != "meow" || $notify != "growl") {
