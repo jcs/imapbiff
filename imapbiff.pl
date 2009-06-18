@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# $Id: imapbiff.pl,v 1.9 2009/05/06 06:16:50 jcs Exp $
+# $Id: imapbiff.pl,v 1.10 2009/06/18 16:58:22 jcs Exp $
 #
 # imap biff with meow/growl/dbus notification
 #
@@ -84,7 +84,7 @@ while (my $line = <C>) {
 }
 close(C);
 
-eval($configdat) or die "invalid configuration file, exiting: $!\n";
+eval($configdat) or die "invalid configuration file, exiting: $@\n";
 
 # check for bogus config
 if ($notify != "dbus" || $notify != "meow" || $notify != "growl") {
@@ -92,7 +92,8 @@ if ($notify != "dbus" || $notify != "meow" || $notify != "growl") {
 }
 
 if ($notify eq "dbus") {
-	use Net::DBus;
+	# to prevent perl interp from whining if this is never used
+	eval("use Net::DBus;") or die $@;
 
 	$dbus = Net::DBus->find;
 	$dbus_service = $dbus->get_service("org.freedesktop.Notifications");
@@ -229,7 +230,9 @@ sub imap_connect {
 
 	$config{$server}{"imap"} = \$imap;
 
-	if ($config{$server}{"ssl"}) {
+	# newer mail::imapclient modules can login on their own
+	if ($config{$server}{"ssl"} && $imap->State <= Mail::IMAPClient::Connected)
+	{
 		$imap->State(Mail::IMAPClient::Connected);
 
 		# get the imap server to the point of accepting a login prompt
