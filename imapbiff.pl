@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# $Id: imapbiff.pl,v 1.10 2009/06/18 16:58:22 jcs Exp $
+# $Id: imapbiff.pl,v 1.11 2009/06/18 17:27:58 jcs Exp $
 #
 # imap biff with meow/growl/dbus notification
 #
@@ -99,6 +99,12 @@ if ($notify eq "dbus") {
 	$dbus_service = $dbus->get_service("org.freedesktop.Notifications");
 	$dbus_notification = $dbus_service->get_object(
 		"/org/freedesktop/Notifications", "org.freedesktop.Notifications");
+}
+
+elsif ($notify eq "growl") {
+	if (!-f "/usr/local/bin/growlnotify") {
+		die "/usr/local/bin/growlnotify not found; install from growl extras";
+	}
 }
 
 # clean up nicely if we can
@@ -276,10 +282,15 @@ sub announce_message {
 			. $server . "\n";
 	}
 
-	my $subject = hsc(decode_qp($$imap->get_header($msgno, "Subject")));
-	my $from = hsc(decode_qp($$imap->get_header($msgno, "From")));
+	my $subject = decode_qp($$imap->get_header($msgno, "Subject"));
+	my $from = decode_qp($$imap->get_header($msgno, "From"));
 
-	# strip high ascii because growlnotify likes to segfault on it
+	if ($notify ne "growl") {
+		$subject = hsc($subject);
+		$from = hsc($from);
+	}
+
+	# strip non-ascii because growlnotify likes to segfault on it
 	$subject =~ tr/\000-\177//cd; 
 	$from =~ tr/\000-\177//cd; 
 
@@ -301,12 +312,12 @@ sub announce_message {
 }
 
 sub notify {
-	if ($notify eq "growlnotify") {
+	if ($notify eq "growl") {
 		system("/usr/local/bin/growlnotify",
 			"-n", "imapbiff",
 			"--image", $icon,
 			"-t", $_[0],
-			"-m", $_[1]);
+			"-m", $_[1]) == 0 or die "couldn't run growlnotify: $!";
 	}
 
 	elsif ($notify eq "meow") {
