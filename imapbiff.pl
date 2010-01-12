@@ -93,7 +93,10 @@ if ($notify != "dbus" || $notify != "meow" || $notify != "growl") {
 
 if ($notify eq "dbus") {
 	# to prevent perl interp from whining if this is never used
-	eval("use Net::DBus;") or die $@;
+	eval("use Net::DBus;");
+	if ($@) {
+		die $@;
+	}
 
 	$dbus = Net::DBus->find;
 	$dbus_service = $dbus->get_service("org.freedesktop.Notifications");
