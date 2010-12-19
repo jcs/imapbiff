@@ -36,6 +36,8 @@
 #	%config = (
 #		"server.name.here" => {
 #			"username" => "example",
+#			# on mac os, leave "password" key undefined and imapbiff will
+#           # retrieve it from your keychain
 #			"password" => "password",
 #			"ssl" => 1,
 #			"folders" => [ "INBOX", "mailbox2", "mailbox3.whatever" ],
@@ -72,8 +74,12 @@ $sleepint = 60;
 # seconds to allow a folder check to take
 $socktimeout = 10;
 
-# use dbus notifications by default
-$notify = "dbus";
+# use growl on mac os by default, otherwise use dbus
+if ($^O eq "darwin") {
+	$notify = "growl";
+} else {
+	$notify = "dbus";
+}
 
 # read the user's config
 my $configdat;
@@ -121,6 +127,24 @@ $icon = write_icon();
 foreach my $server (keys %config) {
 	foreach my $folder (@{$config{$server}{"folders"}}) {
 		$config{$server}{"seen"}{$folder} = ();
+	}
+
+	# on mac os, retrieve any unset passwords from the keychain
+	if ($^O eq "darwin" && $config{$server}{"password"} eq "") {
+		open(SEC, "security find-internet-password -g -a '"
+			. $config{$server}{"username"} . "' -s '" . $server . "' "
+			. "2>&1 |") || die "can't run security: " . $!;
+		while (chop(my $line = <SEC>)) {
+			if ($line =~ /^password: "(.+)"$/) {
+				$config{$server}{"password"} = $1;
+			}
+		}
+
+		if ($config{$server}{"password"} eq "") {
+			die "no password set in config and couldn't find password for \""
+				. $config{$server}{"username"} . "\" on \"" . $server . "\" "
+				. "in keychain";
+		}
 	}
 
 	imap_connect($server);
