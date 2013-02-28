@@ -3,13 +3,13 @@
 #
 # imap biff with meow/growl/dbus notification
 #
-# Copyright (c) 2006, 2008 joshua stein <jcs@jcs.org>
+# Copyright (c) 2006, 2008, 2010, 2013 joshua stein <jcs@jcs.org>
 # ssl work-around code from Nick Burch (http://gagravarr.org/code/)
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
 # are met:
-# 
+#
 # 1. Redistributions of source code must retain the above copyright
 #    notice, this list of conditions and the following disclaimer.
 # 2. Redistributions in binary form must reproduce the above copyright
@@ -17,7 +17,7 @@
 #    documentation and/or other materials provided with the distribution.
 # 3. The name of the author may not be used to endorse or promote products
 #    derived from this software without specific prior written permission.
-# 
+#
 # THIS SOFTWARE IS PROVIDED BY THE AUTHOR "AS IS" AND ANY EXPRESS OR
 # IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
 # OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
@@ -28,7 +28,7 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 # THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-# 
+#
 
 #
 # to configure, re-define variables in a ~/.imapbiffrc file like so:
@@ -53,6 +53,9 @@
 #
 #	# for verbosity
 #	#$debug = 1;
+#
+#	# ssl ca path, if not this default
+#	$ssl_ca_path = "/etc/ssl/cert.pem";
 #
 #	# which notification mechanism to use ("meow", "dbus", or "growl")
 #	$notify = "dbus";
@@ -238,6 +241,9 @@ sub imap_connect {
 				PeerPort => ($config{$server}{"port"} ?
 					$config{$server}{"port"} : 993),
 				Timeout => 5,
+				SSL_verify_mode => SSL_VERIFY_PEER,
+				SSL_ca_path => $config{"ssl_ca_path"} ?
+					$config{"ssl_ca_path"} : "/etc/ssl/cert.pem"
 			) or die "no ssl socket: " . $@;
 
 			$config{$server}{"sslsock"} = \$sock;
