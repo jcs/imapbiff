@@ -15,7 +15,9 @@
 # For OS X, `brew install terminal-notifier` to install terminal notifier
 # command line application.  If your passwords are in keychain, you can avoid
 # having them in plaintext in your ~/.imapbiffrc file, and they will be fetched
-# from `security` on startup.
+# from `security` on startup.  You can add them to your keychain with:
+#
+# $ security add-internet-password -a <username>  -s <hostname> -w <password>
 #
 
 #
@@ -50,13 +52,30 @@ require "open3"
 require "yaml"
 
 class Notifier
-  def self.notify(title, message, group = "imapbiff")
+  def self.notify(options = {})
+    options = {
+      :title => "imapbiff",
+      :message => options[:message],
+    }.merge(options)
+
+    if options[:label]
+      options[:title] = "#{options[:label]}#{options[:title]}"
+      options.delete(:label)
+    end
+
     if RUBY_PLATFORM.match(/darwin/)
-      system("/Applications/terminal-notifier.app/Contents/MacOS/terminal-notifier",
-        "-group", group,
-        "-title", title.gsub(/^\[/, "\\["),
-        "-message", message.gsub(/^\[/, "\\["),
-        "-sender", "com.apple.Mail")
+      options[:sender] = "com.apple.Mail"
+      options.each do |k,v|
+        if v[0] == "\"" || v[0] == "["
+          options[k] = "\\" + v
+        end
+      end
+
+      args = [
+        "/Applications/terminal-notifier.app/Contents/MacOS/terminal-notifier",
+      ] + options.map{|k,v| [ "-#{k}", v ] }.flatten
+
+      system(*args)
     else
       puts "need to notify: [#{title}] [#{message}]"
     end
@@ -84,7 +103,8 @@ class IMAPConnection
     @imap = Net::IMAP.new(self.hostname, "imaps", ssl = true)
     @imap.authenticate("LOGIN", self.username, self.password)
 
-    self.notify("imapbiff", "Connected to #{self.hostname} as #{self.username}")
+    self.notify({ :message => "Connected to #{self.hostname} as " <<
+      "#{self.username}" })
 
     @imap
   end
@@ -92,7 +112,7 @@ class IMAPConnection
   def idle_loop
     while true do
       begin
-        self.imap.select(self.mailbox)
+        self.imap.examine(self.mailbox)
 
         while true do
           unseen = nil
@@ -104,18 +124,76 @@ class IMAPConnection
             end
           end
 
-          if unseen
-            imap.select(self.mailbox)
+          if !unseen
+            next
+          end
 
-            attrs = {}
-            [ "from", "subject" ].each do |f|
+          flags = imap.fetch(unseen, "FLAGS").first.attr.values.first
+          if flags.include?(:Seen)
+            next
+          end
+
+          imap.examine(self.mailbox)
+
+          attrs = { :body => "Unable to read message" }
+
+          begin
+            [ :from, :subject ].each do |f|
               attrs[f] = imap.fetch(unseen,
-                "BODY.PEEK[HEADER.FIELDS (#{f.upcase})]").
+                "BODY.PEEK[HEADER.FIELDS (#{f.to_s.upcase})]").
                 first.attr.values.first.strip.gsub(/^[^:]+: ?/, "")
+
+              if m = attrs[f].to_s.match(/^=\?([^\?]+)\?([QB])\?(.+)\?=$/)
+                if m[2].downcase == "q"
+                  attrs[f] = m[3].unpack("M*").first
+                elsif m[2].downcase == "b"
+                  attrs[f] = m[3].unpack("m*").first
+                end
+              end
             end
 
-            self.notify(attrs["subject"], "From #{attrs["from"]}")
+            encoding = nil
+            textpart = 0
+
+            struct = imap.fetch(unseen, "BODYSTRUCTURE").
+              first.attr.values.first
+            case struct.class.to_s
+            when "Net::IMAP::BodyTypeMultipart"
+              struct.parts.each_with_index do |part,x|
+                if part.media_type.downcase == "text" &&
+                part.subtype.downcase == "plain"
+                  textpart = "1.#{x + 1}"
+                  encoding = part.encoding
+                  break
+                end
+              end
+
+            when "Net::IMAP::BodyTypeText"
+              if struct.subtype.downcase == "plain"
+                textpart = 1
+                encoding = struct.encoding
+              end
+            end
+
+            if textpart == 0
+              attrs[:body] = "HTML message"
+            else
+              attrs[:body] = imap.fetch(unseen,
+                "BODY.PEEK[#{textpart}]<0.200>").first.attr.values.first
+
+              if encoding.to_s.match(/quoted/i)
+                attrs[:body] = attrs[:body].unpack("M*").first
+              elsif encoding.to_s.match(/base64/i)
+                attrs[:body] = attrs[:body].unpack("m*").first
+              end
+            end
+
+          rescue => e
+            puts e.inspect
           end
+
+          self.notify({ :title => attrs[:from], :subtitle =>
+            attrs[:subject], :message => attrs[:body] })
         end
 
       rescue IOError => e
@@ -123,18 +201,19 @@ class IMAPConnection
         sleep 5
 
       rescue StandardError => e
-        self.notify("[#{self.hostname}] imapbiff error: #{e.class}", e.message)
+        self.notify({ :title => "[#{self.hostname}] imapbiff error: " <<
+          "#{e.class}", :message => e.message })
         sleep 5
       end
     end
   end
 
-  def notify(title, message)
+  def notify(options)
     if self.label.to_s != ""
-      title = self.label + title.to_s
+      options[:label] = self.label
     end
 
-    Notifier.notify(title, message, "#{self.username}@#{self.hostname}")
+    Notifier.notify(options)
   end
 end
 
@@ -145,21 +224,23 @@ class IMAPBiff
     @connections = []
 
     config[:accounts].each do |acct|
-      if !acct[:password] && RUBY_PLATFORM.match(/darwin/)
-        IO.popen([ "/usr/bin/security", "find-internet-password", "-g",
-        "-a", acct[:username], "-s", acct[:hostname] ],
-        :err => [ :child, :out ]) do |sec|
-          while sec && !sec.eof?
-            if m = sec.gets.match(/^password: "(.+)"$/)
-              acct[:password] = m[1]
+      if !acct[:password]
+        if RUBY_PLATFORM.match(/darwin/)
+          IO.popen([ "/usr/bin/security", "find-internet-password", "-g",
+          "-a", acct[:username], "-s", acct[:hostname] ],
+          :err => [ :child, :out ]) do |sec|
+            while sec && !sec.eof?
+              if m = sec.gets.match(/^password: "(.+)"$/)
+                acct[:password] = m[1]
+              end
             end
           end
         end
       end
 
       if acct[:password].to_s == ""
-        Notifier.notify("imapbiff", "failed to initialize " <<
-          "#{acct[:username]}@#{acct[:hostname]}: no password found")
+        Notifier.notify({ :message => "failed to initialize " <<
+          "#{acct[:username]}@#{acct[:hostname]}: no password found" })
         exit 1
       end
 
